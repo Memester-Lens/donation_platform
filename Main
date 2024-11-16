@@ -1,0 +1,184 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+
+contract CrowdfundingProject {
+    address public creator;
+    address public matchingDonor;
+    string public description;
+    uint256 public goal;
+    uint256 public totalFunds;
+    uint256 public matchedFunds;
+    bool public isClosed;
+
+    event FundReceived(address donor, uint256 amount);
+    event MatchedFundReceived(uint256 amount);
+    event ProjectClosed(uint256 totalRaised);
+
+    constructor(address _creator, string memory _description, uint256 _goal) {
+        creator = _creator;
+        description = _description;
+        goal = _goal;
+        totalFunds = 0;
+        matchedFunds = 0;
+        isClosed = false;
+    }
+
+    function setMatchingDonor(address _matchingDonor) public {
+        require(msg.sender == creator, "Only creator can set matching donor");
+        require(matchingDonor == address(0), "Matching donor already set");
+        matchingDonor = _matchingDonor;
+    }
+
+    function donate() public payable {
+        require(!isClosed, "Project is closed");
+        totalFunds += msg.value;
+        emit FundReceived(msg.sender, msg.value);
+
+        if (matchingDonor != address(0)) {
+            matchedFunds += msg.value;
+            emit MatchedFundReceived(msg.value);
+        }
+
+        if (totalFunds + matchedFunds >= goal) {
+            isClosed = true;
+            emit ProjectClosed(totalFunds + matchedFunds);
+        }
+    }
+
+    function matchFunds() public payable {
+        require(msg.sender == matchingDonor, "Only matching donor can match funds");
+        require(!isClosed, "Project is closed");
+        require(msg.value == matchedFunds, "Must match exact amount");
+
+        totalFunds += msg.value;
+        matchedFunds = 0;
+
+        if (totalFunds >= goal) {
+            isClosed = true;
+            emit ProjectClosed(totalFunds);
+        }
+    }
+
+    function withdraw() public {
+        require(msg.sender == creator, "Only creator can withdraw");
+        require(isClosed, "Project is not closed yet");
+        payable(creator).transfer(address(this).balance);
+    }
+}
+
+contract CrowdfundingFactory {
+    CrowdfundingProject[] public projects;
+
+    event ProjectCreated(address projectAddress, address creator, string description, uint256 goal);
+
+    function createProject(string memory _description, uint256 _goal) public {
+        CrowdfundingProject newProject = new CrowdfundingProject(msg.sender, _description, _goal);
+        projects.push(newProject);
+        emit ProjectCreated(address(newProject), msg.sender, _description, _goal);
+    }
+
+    function getProjects() public view returns (CrowdfundingProject[] memory) {
+        return projects;
+    }
+}
+
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Web3 Crowdfunding</title>
+    <script src="https://cdn.jsdelivr.net/npm/web3@1.5.2/dist/web3.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        h1, h2 {
+            color: #333;
+        }
+        input, button {
+            margin: 5px 0;
+            padding: 5px;
+        }
+        .project {
+            border: 1px solid #ddd;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+        }
+        .progress-bar {
+            background-color: #e0e0e0;
+            height: 20px;
+            border-radius: 10px;
+            margin: 10px 0;
+        }
+        .progress {
+            background-color: #4CAF50;
+            height: 100%;
+            border-radius: 10px;
+            text-align: center;
+            line-height: 20px;
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <h1>Web3 Crowdfunding</h1>
+    
+    <h2>Create Project</h2>
+    <input id="description" type="text" placeholder="Project Description">
+    <input id="goal" type="number" placeholder="Funding Goal (in ETH)">
+    <button onclick="createProject()">Create Project</button>
+
+    <h2>Projects</h2>
+    <div id="projects"></div>
+
+    <script>
+        let web3;
+        let factoryContract;
+        const factoryAddress = "YOUR_FACTORY_CONTRACT_ADDRESS";
+        const factoryABI = []; // Add your factory contract ABI here
+        const projectABI = []; // Add your project contract ABI here
+
+        async function init() {
+            if (typeof window.ethereum !== 'undefined') {
+                web3 = new Web3(window.ethereum);
+                try {
+                    await window.ethereum.enable();
+                    factoryContract = new web3.eth.Contract(factoryABI, factoryAddress);
+                    loadProjects();
+                } catch (error) {
+                    console.error("User denied account access");
+                }
+            } else {
+                console.log('Please install MetaMask!');
+            }
+        }
+
+        async function createProject() {
+            const description = document.getElementById('description').value;
+            const goal = web3.utils.toWei(document.getElementById('goal').value, 'ether');
+            const accounts = await web3.eth.getAccounts();
+
+            await factoryContract.methods.createProject(description, goal).send({ from: accounts[0] });
+            loadProjects();
+        }
+
+        async function loadProjects() {
+            const projectsDiv = document.getElementById('projects');
+            projectsDiv.innerHTML = '';
+
+            const projects = await factoryContract.methods.getProjects().call();
+
+            for (let i = 0; i < projects.length; i++) {
+                const projectContract = new web3.eth.Contract(projectABI, projects[i]);
+                const description = await projectContract.methods.description().call();
+                const goal = await projectContract.methods.goal().call();
+                const totalFunds = await projectContract.methods.totalFunds().call();
+                const matchedFunds = await projectContract.methods.matchedFunds().call();
+                const isClosed = await projectContract.methods.isClosed().call();
+                const matchingDonor = await projectContract.methods.matchingDon
